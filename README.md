@@ -15,7 +15,7 @@ This tool is designed for **Real-time Synchronization** between your local machi
 ### Why this tool?
 Due to internet restrictions in Iran and the potential loss of access to international CI/CD services (like GitHub Actions, CircleCI, etc.), this tool provides a direct, peer-to-peer deployment mechanism. It ensures that your delivery pipeline remains functional even during global connectivity outages or "National Internet" (Intranet) transitions.
 
-## Advanced Features | قابلیت‌های پیشرفته
+## Advanced Features
 1.  **Multi-Profile Support:** Manage multiple servers/projects in one config. 
 2.  **Dry Run Mode:** Test your deployment without making changes (`--dry-run`).
 3.  **Content Hashing:** Only upload files if their content actually changed.
@@ -38,7 +38,7 @@ Due to internet restrictions in Iran and the potential loss of access to interna
    Edit `config.json` with your server details and profiles.
 
 
-3. **Run | اجرا:**
+3. **Run**
    ```bash
    # Standard Run 
    python direct_deploy.py
