@@ -8,10 +8,13 @@ import argparse
 import paramiko
 import zlib
 import urllib.request
+import re
+import subprocess
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from pathlib import Path
 from datetime import datetime
+import threading
 
 # Setup logging
 logging.basicConfig(
@@ -37,7 +40,15 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 def load_config():
     try:
         with open(CONFIG_PATH, "r") as f:
-            data = json.load(f)
+            content = f.read()
+            # Support environment variable expansion: ${VAR_NAME}
+            def env_replacer(match):
+                var_name = match.group(1)
+                return os.environ.get(var_name, match.group(0))
+            
+            content = re.sub(r"\$\{([^}]+)\}", env_replacer, content)
+            data = json.loads(content)
+            
             # Support for profiles
             if "profiles" in data:
                 return data["profiles"].get(args.profile, data["profiles"].get("default", data))
@@ -61,14 +72,15 @@ MIRROR_REMOTE = config.get("mirror_remote", False)
 file_hashes = {}
 
 def get_file_hash(filepath):
-    """Calculate MD5 hash of a file."""
+    """Calculate MD5 hash of a file incrementally to save memory."""
     hasher = hashlib.md5()
     try:
         with open(filepath, 'rb') as f:
-            buf = f.read()
-            hasher.update(buf)
+            for chunk in iter(lambda: f.read(8192), b""):
+                hasher.update(chunk)
         return hasher.hexdigest()
-    except:
+    except Exception as e:
+        logger.error(f"Error hashing {filepath}: {e}")
         return None
 
 class SSHManager:
@@ -99,8 +111,14 @@ class SSHManager:
                 connect_params["password"] = self.config["password"]
                 
             self.ssh.connect(**connect_params)
+            
+            # Enable Transport Compression if requested
+            if ENABLE_COMPRESSION:
+                transport = self.ssh.get_transport()
+                transport.use_compression(True)
+                
             self.sftp = self.ssh.open_sftp()
-            logger.info("Connected successfully!")
+            logger.info("Connected successfully (Compression: %s)!" % ENABLE_COMPRESSION)
         except Exception as e:
             logger.error(f"Connection failed: {e}")
             self.ssh = None
@@ -136,18 +154,20 @@ class SSHManager:
             remote_dir = os.path.dirname(remote_path).replace("\\", "/")
             self.remote_mkdir_p(remote_dir)
             
-            logger.info(f"Uploading: {os.path.basename(local_path)}")
+            # Use retry logic for stability
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Uploading: {os.path.basename(local_path)} (Attempt {attempt+1})")
+                    self.sftp.put(local_path, remote_path)
+                    return True
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    logger.warning(f"Upload failed, retrying... {e}")
+                    time.sleep(2)
             
-            # Feature 4: Compression Support
-            if ENABLE_COMPRESSION and os.path.getsize(local_path) > 1024: # > 1KB
-                with open(local_path, 'rb') as f:
-                    data = f.read()
-                compressed = zlib.compress(data)
-                # Note: SFTP doesn't support decompressing on fly, so we upload normally
-                # but we could use SSH for compressed streams. For now, standard upload.
-                self.sftp.put(local_path, remote_path)
-            else:
-                self.sftp.put(local_path, remote_path)
+            return False
                 
             return True
         except Exception as e:
@@ -200,26 +220,66 @@ class SSHManager:
                 except:
                     pass
 
+    def list_remote_recursive(self, remote_path):
+        """Recursively list files on the remote server."""
+        if not self.ensure_connection(): return []
+        files = []
+        try:
+            for entry in self.sftp.listdir_attr(remote_path):
+                full_path = remote_path + "/" + entry.filename
+                if entry.st_mode & 0o040000: # Directory
+                    files.extend(self.list_remote_recursive(full_path))
+                else: # File
+                    files.append(full_path)
+        except:
+            pass
+        return files
+
 class DeployHandler(FileSystemEventHandler):
     def __init__(self, ssh_manager):
         self.ssh = ssh_manager
-        self.debounce_seconds = 0.5 
+        self.debounce_seconds = 0.8
+        self.pending_files = set()
+        self._timer = None
+        self._lock = threading.Lock()
+
+    def _trigger_sync(self):
+        with self._lock:
+            files_to_sync = list(self.pending_files)
+            self.pending_files.clear()
+            self._timer = None
+        
+        if files_to_sync:
+            logger.info(f"Syncing bundle of {len(files_to_sync)} changes...")
+            for local_path in files_to_sync:
+                if os.path.exists(local_path):
+                    self.sync_file(local_path)
+                else:
+                    self.delete_remote(local_path)
+
+    def _schedule_sync(self, path):
+        with self._lock:
+            self.pending_files.add(path)
+            if self._timer:
+                self._timer.cancel()
+            self._timer = threading.Timer(self.debounce_seconds, self._trigger_sync)
+            self._timer.start()
 
     def on_modified(self, event):
         if not event.is_directory:
-            self.sync_file(event.src_path)
+            self._schedule_sync(event.src_path)
 
     def on_created(self, event):
         if not event.is_directory:
-            self.sync_file(event.src_path)
+            self._schedule_sync(event.src_path)
 
     def on_deleted(self, event):
         if not event.is_directory:
-            self.delete_remote(event.src_path)
+            self._schedule_sync(event.src_path)
 
     def on_moved(self, event):
-        self.delete_remote(event.src_path)
-        self.sync_file(event.dest_path)
+        self._schedule_sync(event.src_path) # Delete old
+        self._schedule_sync(event.dest_path) # Create new
 
     def should_ignore(self, path):
         # Feature 5: Glob Pattern Support
@@ -242,12 +302,16 @@ class DeployHandler(FileSystemEventHandler):
         if local_path in file_hashes and file_hashes[local_path] == new_hash:
             return
         
-        time.sleep(self.debounce_seconds)
-        
         # Feature 7: Pre-sync Local Command
+        # Replacement of os.system with subprocess for security
         if PRE_SYNC_COMMAND:
             logger.info(f"Running local pre-sync command: {PRE_SYNC_COMMAND}")
-            os.system(PRE_SYNC_COMMAND)
+            import subprocess
+            try:
+                subprocess.run(PRE_SYNC_COMMAND, shell=True, check=True)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Pre-sync command failed: {e}")
+                return # Stop sync if pre-command fails
 
         remote_path = self.get_remote_path(local_path)
         if self.ssh.upload_file(local_path, remote_path):
@@ -300,10 +364,17 @@ def full_sync(ssh_manager):
                 file_hashes[local_path] = new_hash
                 count += 1
     
-    # Feature 9: Remote Mirroring (Cleanup)
+    # Feature 9: Remote Mirroring (Actual Cleanup)
     if MIRROR_REMOTE and not args.dry_run:
-        # This is complex to implement perfectly with SFTP, requires recursive listing
-        logger.info("Remote mirroring enabled (Cleanup not fully implemented in SFTP mode yet)")
+        logger.info("Performing remote cleanup (Mirroring)...")
+        remote_files = ssh_manager.list_remote_recursive(REMOTE_DIR)
+        local_relative_files = {os.path.relpath(p, LOCAL_DIR).replace("\\", "/") for p in local_files}
+        
+        for r_file in remote_files:
+            rel_r_file = os.path.relpath(r_file, REMOTE_DIR).replace("\\", "/")
+            if rel_r_file not in local_relative_files:
+                logger.info(f"Removing orphaned remote file: {rel_r_file}")
+                ssh_manager.remove_file(r_file)
 
     logger.info(f"Full sync completed. {count} files uploaded.")
     if count > 0 and POST_SYNC_COMMAND:
