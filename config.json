@@ -15,5 +15,6 @@
         "node_modules",
         ".env",
         ".vscode"
-    ]
+    ],
+    "post_sync_command": ""
 }

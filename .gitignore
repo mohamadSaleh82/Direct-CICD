@@ -1,0 +1,6 @@
+deploy.log
+__pycache__/
+*.pyc
+.vscode/
+.env
+# config.json # Uncomment if you want to keep secrets local
