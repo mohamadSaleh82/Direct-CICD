@@ -1,0 +1,19 @@
+{
+    "server": {
+        "host": "**********",
+        "username": "root",
+        "password": "**********",
+        "port": 22
+    },
+    "paths": {
+        "local_path": "C:\\Users\\mohamad saleh\\Desktop\\opan.ir",
+        "remote_path": "/var/www/opan.ir"
+    },
+    "ignore": [
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".env",
+        ".vscode"
+    ]
+}
