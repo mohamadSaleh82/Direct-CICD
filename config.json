@@ -1,20 +1,31 @@
 {
-    "server": {
-        "host": "**********",
-        "username": "root",
-        "password": "**********",
-        "port": 22
-    },
-    "paths": {
-        "local_path": "C:\\Users\\mohamad saleh\\Desktop\\opan.ir",
-        "remote_path": "/var/www/opan.ir"
-    },
-    "ignore": [
-        ".git",
-        "__pycache__",
-        "node_modules",
-        ".env",
-        ".vscode"
-    ],
-    "post_sync_command": ""
+    "profiles": {
+        "default": {
+            "server": {
+                "host": "**********",
+                "username": "root",
+                "password": "**********",
+                "port": 22,
+                "key_path": ""
+            },
+            "paths": {
+                "local_path": "C:\\Users\\mohamad saleh\\Desktop\\opan.ir",
+                "remote_path": "/var/www/opan.ir"
+            },
+            "ignore": [
+                ".git",
+                "**/*.pyc",
+                "**/__pycache__",
+                "node_modules",
+                ".env",
+                ".vscode"
+            ],
+            "pre_sync_command": "",
+            "post_sync_command": "",
+            "health_check_url": "",
+            "enable_backup": false,
+            "enable_compression": true,
+            "mirror_remote": false
+        }
+    }
 }

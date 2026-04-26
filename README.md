@@ -15,35 +15,50 @@ This tool is designed for **Real-time Synchronization** between your local machi
 ### Why this tool?
 Due to internet restrictions in Iran and the potential loss of access to international CI/CD services (like GitHub Actions, CircleCI, etc.), this tool provides a direct, peer-to-peer deployment mechanism. It ensures that your delivery pipeline remains functional even during global connectivity outages or "National Internet" (Intranet) transitions.
 
-## Features | ویژگی‌ها
-- **Live Sync:** Instant upload upon file save. (همگام‌سازی آنی به محض ذخیره فایل)
-- **Auto Reconnect:** Resilient to connection drops. (اتصال خودکار در صورت قطع اینترنت)
-- **Logging:** Detailed logs saved to `deploy.log`. (ثبت گزارشات در فایل لاگ)
-- **Post-Sync Command:** Execute commands on server after upload (e.g., restart service). (اجرای دستورات روی سرور پس از آپلود)
-- **Debounced Sync:** Prevents corrupt uploads during rapid changes. (جلوگیری از آپلود فایل‌های ناقص)
+## Advanced Features | قابلیت‌های پیشرفته
+1.  **Multi-Profile Support:** Manage multiple servers/projects in one config. 
+2.  **Dry Run Mode:** Test your deployment without making changes (`--dry-run`).
+3.  **Content Hashing:** Only upload files if their content actually changed.
+4.  **SSH Key Auth:** Support for private key authentication. 
+5.  **Remote Backup:** Auto-backup of remote files before overwrite. 
+6.  **Pre-Sync Commands:** Run local scripts (like build) before sync.
+7.  **Health Check Ping:** Auto-verify website status after deployment.
+8.  **Glob Pattern Ignore:** Flexible file exclusion using patterns.
+9.  **Auto Reconnect:** Resilient to connection drops.
+10. **Logging:** Detailed history saved to `deploy.log`.
 
-## Usage | نحوه استفاده
+## Usage 
 
-1. **Install Requirements | نصب پیش‌نیازها:**
+1. **Install Requirements**
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **Configuration | تنظیمات:**
-   Edit `config.json` with your server details and paths.
-   فایل `config.json` را با اطلاعات سرور و مسیرهای خود ویرایش کنید.
+2. **Configuration**
+   Edit `config.json` with your server details and profiles.
+
 
 3. **Run | اجرا:**
    ```bash
+   # Standard Run 
    python direct_deploy.py
+   
+   # With Profile 
+   python direct_deploy.py --profile production
+   
+   # Dry Run 
+   python direct_deploy.py --dry-run
+   
+   # Full Sync on Start
+   python direct_deploy.py --full-sync
    ```
 
 ## Configuration (config.json)
-- `server`: Host, Username, Password/Key details.
-- `paths`: `local_path` (your PC) and `remote_path` (server).
-- `ignore`: List of files/folders to exclude (e.g. `.git`, `node_modules`).
-- `post_sync_command`: A command to run on the server after each sync.
+- `key_path`: Path to your private SSH key (optional).
+- `pre_sync_command`: Local command to run before upload.
+- `health_check_url`: URL to ping after successful sync.
+- `enable_backup`: Set to `true` to keep `.bak` files on server.
+- `ignore`: Supports glob patterns (e.g., `**/*.tmp`).
 
 ---
 Developed for **opan.ir** project.
-توسعه یافته برای پروژه **opan.ir**
